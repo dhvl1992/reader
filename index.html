@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Quiet Reader</title>
+<meta name="description" content="A quiet, distraction-free Markdown reader.">
+<meta name="theme-color" content="#fbfaf6">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<script src="vendor/marked.umd.js"></script>
+<style>
+  /* ---------- Themes ---------- */
+  :root {
+    --bg:#fbfaf6; --fg:#1f1e1b; --muted:#8a867c; --line:#e6e2d8; --panel:#ffffff; --accent:#1f1e1b;
+    --font: 'Literata', Georgia, serif;
+    --size: 19px; --lh: 1.6; --margin: 28px; --align: left;
+    --top: calc(env(safe-area-inset-top, 0px) + 40px);
+    --bottom: calc(env(safe-area-inset-bottom, 0px) + 38px);
+  }
+  body.t-sepia { --bg:#f3ead6; --fg:#4e3d2c; --muted:#9a8669; --line:#e2d5b8; --panel:#f8f1e1; --accent:#4e3d2c; }
+  body.t-dark  { --bg:#1f2125; --fg:#d6d2c9; --muted:#7c7a74; --line:#33363b; --panel:#272a2f; --accent:#d6d2c9; }
+  body.t-black { --bg:#000000; --fg:#b9b6af; --muted:#5f5d58; --line:#1e1e1e; --panel:#111111; --accent:#d0cdc6; }
+
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); }
+  body { font-family:'Atkinson Hyperlegible', system-ui, sans-serif; overflow:hidden; transition:background .2s, color .2s; }
+  button { font:inherit; color:inherit; background:none; border:0; cursor:pointer; }
+  .hidden { display:none !important; }
+
+  /* ---------- Library ---------- */
+  #library { position:fixed; inset:0; overflow-y:auto; padding:calc(env(safe-area-inset-top,0px) + 28px) 20px calc(env(safe-area-inset-bottom,0px) + 40px); }
+  .lib-wrap { max-width:640px; margin:0 auto; }
+  .lib-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:22px; }
+  .lib-head h1 { font-family:'Literata', serif; font-weight:600; font-size:28px; margin:0; letter-spacing:-.01em; }
+  .lib-head .theme-quick { color:var(--muted); font-size:14px; }
+  .actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:26px; }
+  .btn { border:1px solid var(--line); background:var(--panel); padding:14px 12px; border-radius:12px; font-size:15px; text-align:center; }
+  .btn:active { transform:scale(.98); }
+  .drop-hint { color:var(--muted); font-size:13px; text-align:center; margin:-14px 0 24px; }
+  .book { display:flex; align-items:center; gap:14px; padding:14px 4px; border-bottom:1px solid var(--line); cursor:pointer; }
+  .book .cover { width:42px; height:58px; flex:none; border-radius:3px; background:var(--fg); color:var(--bg); display:flex; align-items:center; justify-content:center; font-family:'Literata',serif; font-size:20px; opacity:.88; }
+  .book .meta { flex:1; min-width:0; }
+  .book .title { font-family:'Literata',serif; font-size:17px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .book .sub { color:var(--muted); font-size:13px; margin-top:4px; }
+  .book .bar { height:3px; background:var(--line); border-radius:2px; margin-top:8px; overflow:hidden; }
+  .book .bar i { display:block; height:100%; background:var(--muted); }
+  .book .del { color:var(--muted); font-size:13px; padding:8px; }
+  .book .del.armed { color:#c0392b; }
+  .empty { color:var(--muted); text-align:center; padding:40px 0; font-size:15px; }
+
+  /* ---------- Reader ---------- */
+  #reader { position:fixed; inset:0; }
+  #vp { position:absolute; top:var(--top); bottom:var(--bottom); left:50%; transform:translateX(-50%);
+        width:min(calc(100% - 2 * var(--margin)), 720px); overflow:hidden; }
+  #content { height:100%; column-fill:auto; font-family:var(--font); font-size:var(--size); line-height:var(--lh);
+             text-align:var(--align); hyphens:auto; -webkit-hyphens:auto; overflow-wrap:break-word; will-change:transform; }
+  #content > :first-child { margin-top:0; }
+  #content p { margin:0 0 .9em; }
+  #content h1, #content h2, #content h3, #content h4 { font-weight:600; line-height:1.25; text-align:left; break-after:avoid; hyphens:manual; }
+  #content h1 { font-size:1.6em; margin:0 0 .8em; }
+  #content h2 { font-size:1.3em; margin:1.4em 0 .6em; }
+  #content h3 { font-size:1.12em; margin:1.2em 0 .5em; }
+  #content h4 { font-size:1em; margin:1em 0 .4em; }
+  #content a { color:inherit; text-decoration-color:var(--muted); text-underline-offset:2px; }
+  #content img { max-width:100%; max-height:var(--vph, 70vh); display:block; margin:1em auto; break-inside:avoid; }
+  #content blockquote { margin:1em 0; padding-left:1em; border-left:3px solid var(--line); color:var(--muted); font-style:italic; }
+  #content pre { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:.78em; line-height:1.5; white-space:pre-wrap; word-break:break-word;
+                 background:color-mix(in srgb, var(--fg) 6%, transparent); padding:.8em 1em; border-radius:6px; text-align:left; }
+  #content code { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:.85em; }
+  #content :not(pre) > code { background:color-mix(in srgb, var(--fg) 8%, transparent); padding:.1em .3em; border-radius:4px; }
+  #content ul, #content ol { padding-left:1.4em; margin:0 0 .9em; }
+  #content li { margin:.25em 0; }
+  #content hr { border:0; text-align:center; margin:1.6em 0; }
+  #content hr::after { content:'⁂'; color:var(--muted); }
+  #content table { border-collapse:collapse; font-size:.85em; margin:1em 0; break-inside:avoid; display:block; max-width:100%; overflow-x:auto; }
+  #content th, #content td { border:1px solid var(--line); padding:.35em .6em; text-align:left; }
+
+  /* Footer — faint progress, tap to change */
+  #foot { position:absolute; left:0; right:0; bottom:calc(env(safe-area-inset-bottom,0px) + 10px); text-align:center;
+          font-size:12px; color:var(--muted); letter-spacing:.02em; user-select:none; padding:6px; }
+
+  /* Chrome (hidden by default) */
+  .chrome { position:absolute; left:0; right:0; background:var(--panel); z-index:5; transition:opacity .15s; }
+  #topbar { top:0; padding:calc(env(safe-area-inset-top,0px) + 6px) 8px 6px; display:flex; align-items:center; gap:4px; border-bottom:1px solid var(--line); }
+  #topbar .ttl { flex:1; text-align:center; font-size:14px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ib { padding:10px 12px; border-radius:10px; font-size:15px; }
+  .ib:active { background:var(--line); }
+  #botbar { bottom:0; padding:12px 18px calc(env(safe-area-inset-bottom,0px) + 14px); border-top:1px solid var(--line); }
+  #botbar .row { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-top:6px; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+
+  /* Sheets (settings / contents / paste) */
+  .sheet-bg { position:fixed; inset:0; background:rgba(0,0,0,.25); z-index:10; }
+  .sheet { position:fixed; left:50%; bottom:0; transform:translateX(-50%); width:min(100%, 560px); max-height:80%; overflow-y:auto;
+           background:var(--panel); color:var(--fg); z-index:11; border-radius:16px 16px 0 0; padding:18px 20px calc(env(safe-area-inset-bottom,0px) + 22px);
+           box-shadow:0 -6px 30px rgba(0,0,0,.15); }
+  .sheet h3 { margin:0 0 14px; font-size:15px; color:var(--muted); font-weight:400; }
+  .set-row { display:flex; align-items:center; gap:10px; margin:14px 0; }
+  .set-row label { width:84px; font-size:14px; color:var(--muted); flex:none; }
+  .seg { display:flex; flex:1; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .seg button { flex:1; padding:10px 4px; font-size:14px; }
+  .seg button.on { background:var(--fg); color:var(--bg); }
+  .swatch { width:40px; height:40px; border-radius:50%; border:2px solid var(--line); flex:none; }
+  .swatch.on { border-color:var(--fg); box-shadow:0 0 0 2px var(--bg) inset; }
+  .toc a { display:block; padding:11px 0; border-bottom:1px solid var(--line); color:inherit; text-decoration:none; font-family:'Literata',serif; font-size:16px; }
+  .toc a.l2 { padding-left:14px; font-size:15px; }
+  .toc a.l3 { padding-left:28px; font-size:14px; color:var(--muted); }
+  .toc a.here { font-weight:600; }
+  .toc a span { float:right; color:var(--muted); font-family:'Atkinson Hyperlegible',sans-serif; font-size:12px; font-weight:400; }
+  textarea, input[type=text] { width:100%; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:10px; padding:12px; font:15px/1.5 'Atkinson Hyperlegible',sans-serif; }
+  textarea { height:40vh; resize:vertical; margin-top:10px; font-family:'JetBrains Mono',monospace; font-size:13px; }
+  .sheet .btn { width:100%; margin-top:12px; background:var(--fg); color:var(--bg); border-color:var(--fg); }
+
+  #toast { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 70px); transform:translateX(-50%); background:var(--fg); color:var(--bg);
+           padding:10px 16px; border-radius:10px; font-size:14px; z-index:20; max-width:90%; text-align:center; }
+  #dropzone { position:fixed; inset:12px; border:2px dashed var(--muted); border-radius:16px; z-index:30; display:flex; align-items:center; justify-content:center;
+              background:color-mix(in srgb, var(--bg) 85%, transparent); font-size:18px; color:var(--muted); pointer-events:none; }
+</style>
+</head>
+<body>
+
+<!-- ========== LIBRARY ========== -->
+<section id="library">
+  <div class="lib-wrap">
+    <div class="lib-head">
+      <h1>Library</h1>
+      <button class="theme-quick" id="libTheme">Theme</button>
+    </div>
+    <div class="actions">
+      <button class="btn" id="openBtn">Open .md file</button>
+      <button class="btn" id="pasteBtn">Paste text</button>
+    </div>
+    <div class="drop-hint">or drop Markdown files anywhere</div>
+    <button class="btn hidden" id="installBtn" style="width:100%;margin:-10px 0 24px">Install app on this device</button>
+    <div id="books"></div>
+  </div>
+  <input type="file" id="fileIn" accept=".md,.markdown,.mdown,.txt,text/markdown,text/plain" multiple hidden>
+</section>
+
+<!-- ========== READER ========== -->
+<section id="reader" class="hidden">
+  <div id="vp"><article id="content"></article></div>
+  <div id="foot"></div>
+
+  <div id="topbar" class="chrome hidden">
+    <button class="ib" id="backBtn" aria-label="Library">‹ Library</button>
+    <div class="ttl" id="bookTitle"></div>
+    <button class="ib" id="tocBtn" aria-label="Contents">☰</button>
+    <button class="ib" id="fsBtn" aria-label="Full screen">⤢</button>
+    <button class="ib" id="aaBtn" aria-label="Text settings">Aa</button>
+  </div>
+  <div id="botbar" class="chrome hidden">
+    <input type="range" id="seek" min="1" max="1" value="1">
+    <div class="row"><span id="seekLabel"></span><span id="seekLeft"></span></div>
+  </div>
+</section>
+
+<!-- ========== SHEETS ========== -->
+<div id="sheetBg" class="sheet-bg hidden"></div>
+
+<div id="aaSheet" class="sheet hidden">
+  <h3>Display</h3>
+  <div class="set-row"><label>Theme</label>
+    <div style="display:flex;gap:12px" id="themes">
+      <button class="swatch" data-t="white" style="background:#fbfaf6" aria-label="White"></button>
+      <button class="swatch" data-t="sepia" style="background:#f3ead6" aria-label="Sepia"></button>
+      <button class="swatch" data-t="dark"  style="background:#1f2125" aria-label="Dark"></button>
+      <button class="swatch" data-t="black" style="background:#000" aria-label="Black"></button>
+    </div>
+  </div>
+  <div class="set-row"><label>Font</label>
+    <div class="seg" id="fonts">
+      <button data-f="literata" style="font-family:Literata,serif">Literata</button>
+      <button data-f="georgia" style="font-family:Georgia,serif">Georgia</button>
+      <button data-f="atkinson" style="font-family:'Atkinson Hyperlegible',sans-serif">Sans</button>
+    </div>
+  </div>
+  <div class="set-row"><label>Size</label>
+    <button class="ib" id="sizeDown" style="font-size:13px">A−</button>
+    <input type="range" id="sizeIn" min="14" max="30" step="1">
+    <button class="ib" id="sizeUp" style="font-size:19px">A+</button>
+  </div>
+  <div class="set-row"><label>Spacing</label>
+    <div class="seg" id="lhs"><button data-v="1.4">Tight</button><button data-v="1.6">Normal</button><button data-v="1.9">Loose</button></div>
+  </div>
+  <div class="set-row"><label>Margins</label>
+    <div class="seg" id="margins"><button data-v="16">Narrow</button><button data-v="28">Normal</button><button data-v="48">Wide</button></div>
+  </div>
+  <div class="set-row"><label>Align</label>
+    <div class="seg" id="aligns"><button data-v="left">Left</button><button data-v="justify">Justify</button></div>
+  </div>
+</div>
+
+<div id="tocSheet" class="sheet hidden"><h3>Contents</h3><nav class="toc" id="toc"></nav></div>
+
+<div id="pasteSheet" class="sheet hidden">
+  <h3>Paste Markdown</h3>
+  <input type="text" id="pasteTitle" placeholder="Title (optional)">
+  <textarea id="pasteText" placeholder="# My notes&#10;&#10;Paste your Markdown here…"></textarea>
+  <button class="btn" id="pasteSave">Add to library</button>
+</div>
+
+<div id="toast" class="hidden"></div>
+<div id="dropzone" class="hidden">Drop to add</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ============================================================
+  // 1. STATE + STORAGE
+  // ============================================================
+  const KEY_BOOKS = 'quietreader.books.v1';
+  const KEY_SET   = 'quietreader.settings.v1';
+  const WPM = 230;                       // reading speed for "time left"
+  const GAP = 60;                        // hidden gap between pages (px)
+
+  const FONTS = {
+    literata: "'Literata', Georgia, serif",
+    georgia:  "Georgia, 'Times New Roman', serif",
+    atkinson: "'Atkinson Hyperlegible', system-ui, sans-serif"
+  };
+  const DEFAULT_SET = { theme:'white', font:'literata', size:19, lh:1.6, margin:28, align:'left', foot:0 };
+
+  const S = {
+    books: [],          // {id, title, text, pos, pct, added, opened}
+    cur: null,          // current book
+    page: 0, total: 1, step: 1,
+    blocks: [],         // top-level elements of the book
+    heads: [],          // {el, level, text, page}
+    words: 0,
+    chrome: false,
+    set: Object.assign({}, DEFAULT_SET),
+    memoryOnly: false   // true if storage is full / blocked
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const content = $('content'), vp = $('vp');
+
+  function load(key, fallback) {
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
+    catch (e) { return fallback; }
+  }
+  function save(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); return true; }
+    catch (e) { return false; }
+  }
+  function saveBooks() {
+    const ok = save(KEY_BOOKS, S.books);
+    if (!ok && !S.memoryOnly) {
+      S.memoryOnly = true;
+      toast('Storage full — new books stay only until you close this page.');
+    }
+  }
+
+  // ============================================================
+  // 2. MARKDOWN → SAFE HTML
+  // ============================================================
+  function mdToHtml(md) {
+    let html;
+    if (window.marked && marked.parse) {
+      html = marked.parse(md, { gfm: true, breaks: false });
+    } else {
+      html = miniMarkdown(md);   // fallback if the CDN could not load
+    }
+    return sanitize(html);
+  }
+
+  function miniMarkdown(md) {
+    const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const inline = (s) => esc(s)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+    return md.split(/\n{2,}/).map((block) => {
+      const h = block.match(/^(#{1,6})\s+(.*)/);
+      if (h) return `<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`;
+      if (/^\s*([-*_])\1{2,}\s*$/.test(block)) return '<hr>';
+      if (/^\d+\.\s/.test(block)) return '<ol>' + block.split(/\n(?=\d+\.\s)/).map(li => `<li>${inline(li.replace(/^\d+\.\s/, ''))}</li>`).join('') + '</ol>';
+      if (/^```/.test(block)) return `<pre><code>${esc(block.replace(/^```.*\n?|```$/g, ''))}</code></pre>`;
+      if (/^>\s?/.test(block)) return `<blockquote><p>${inline(block.replace(/^>\s?/gm, ''))}</p></blockquote>`;
+      if (/^[-*]\s/.test(block)) return '<ul>' + block.split(/\n(?=[-*]\s)/).map(li => `<li>${inline(li.replace(/^[-*]\s/, ''))}</li>`).join('') + '</ul>';
+      return `<p>${inline(block)}</p>`;
+    }).join('\n');
+  }
+
+  function sanitize(html) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html;
+    tpl.content.querySelectorAll('script,iframe,object,embed,style,link,meta,form,input,button').forEach(n => n.remove());
+    tpl.content.querySelectorAll('*').forEach((el) => {
+      [...el.attributes].forEach((a) => {
+        const n = a.name.toLowerCase(), v = a.value.trim().toLowerCase();
+        if (n.startsWith('on')) el.removeAttribute(a.name);
+        if ((n === 'href' || n === 'src') && v.startsWith('javascript:')) el.removeAttribute(a.name);
+      });
+    });
+    return tpl.innerHTML;
+  }
+
+  function slug(text, used) {
+    let s = text.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') || 'section';
+    let base = s, i = 1;
+    while (used.has(s)) s = base + '-' + (i++);
+    used.add(s);
+    return s;
+  }
+
+  // ============================================================
+  // 3. LIBRARY
+  // ============================================================
+  function addBook(title, text) {
+    const firstH1 = text.match(/^#\s+(.+)$/m);
+    const book = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      title: (title || (firstH1 && firstH1[1]) || 'Untitled').trim(),
+      text, pos: 0, pct: 0, added: Date.now(), opened: 0
+    };
+    S.books.unshift(book);
+    saveBooks();
+    return book;
+  }
+
+  function renderLibrary() {
+    const list = $('books');
+    list.innerHTML = '';
+    const books = [...S.books].sort((a, b) => (b.opened || b.added) - (a.opened || a.added));
+    if (!books.length) {
+      list.innerHTML = '<div class="empty">No books yet. Open a .md file to start reading.</div>';
+      return;
+    }
+    books.forEach((b) => {
+      const row = document.createElement('div');
+      row.className = 'book';
+      const pct = Math.round(b.pct || 0);
+      row.innerHTML = `
+        <div class="cover">${escapeHtml(b.title.charAt(0).toUpperCase())}</div>
+        <div class="meta">
+          <div class="title">${escapeHtml(b.title)}</div>
+          <div class="sub">${pct ? pct + '% read' : 'New'} · ${Math.max(1, Math.round(countWords(b.text) / WPM))} min</div>
+          <div class="bar"><i style="width:${pct}%"></i></div>
+        </div>
+        <button class="del">Remove</button>`;
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('.del')) return;
+        openBook(b.id);
+      });
+      const del = row.querySelector('.del');
+      del.addEventListener('click', () => {
+        // Two-tap delete (confirm() is blocked in this frame)
+        if (!del.classList.contains('armed')) {
+          del.classList.add('armed'); del.textContent = 'Tap again';
+          setTimeout(() => { del.classList.remove('armed'); del.textContent = 'Remove'; }, 2500);
+          return;
+        }
+        S.books = S.books.filter(x => x.id !== b.id);
+        saveBooks(); renderLibrary();
+      });
+      list.appendChild(row);
+    });
+  }
+
+  function readFiles(files) {
+    const arr = [...files].filter(f => /\.(md|markdown|mdown|txt)$/i.test(f.name) || /text/.test(f.type));
+    if (!arr.length) { toast('Only .md or .txt files'); return; }
+    let last = null, done = 0;
+    arr.forEach((f) => {
+      const r = new FileReader();
+      r.onload = () => {
+        const name = f.name.replace(/\.(md|markdown|mdown|txt)$/i, '').replace(/[_-]+/g, ' ');
+        const hasH1 = /^#\s+.+$/m.test(r.result);
+        last = addBook(hasH1 ? null : name, String(r.result));
+        if (++done === arr.length) {
+          if (arr.length === 1) openBook(last.id);
+          else { renderLibrary(); toast(arr.length + ' books added'); }
+        }
+      };
+      r.readAsText(f);
+    });
+  }
+
+  // ============================================================
+  // 4. READER — open, paginate, turn pages
+  // ============================================================
+  function openBook(id) {
+    const b = S.books.find(x => x.id === id);
+    if (!b) return;
+    S.cur = b;
+    b.opened = Date.now();
+    saveBooks();
+
+    content.innerHTML = mdToHtml(b.text);
+    S.blocks = [...content.children];
+    S.words = countWords(content.textContent);
+
+    // Headings → ids for TOC and internal links
+    const used = new Set();
+    S.heads = [...content.querySelectorAll('h1,h2,h3')].map((el) => {
+      if (!el.id) el.id = slug(el.textContent, used);
+      return { el, level: +el.tagName[1], text: el.textContent, page: 0 };
+    });
+
+    $('bookTitle').textContent = b.title;
+    document.title = b.title + ' · Quiet Reader';
+    $('library').classList.add('hidden');
+    $('reader').classList.remove('hidden');
+    setChrome(false);
+
+    layout(b.pos || 0);
+    // Re-layout once fonts and images settle, keeping position
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(relayout);
+    content.querySelectorAll('img').forEach(img => img.addEventListener('load', relayout, { once: true }));
+  }
+
+  function closeBook() {
+    saveProgress();
+    S.cur = null;
+    content.innerHTML = '';
+    document.title = 'Quiet Reader';
+    closeSheets();
+    $('reader').classList.add('hidden');
+    $('library').classList.remove('hidden');
+    renderLibrary();
+  }
+
+  // Lay out the book as CSS columns, one column = one page.
+  function layout(anchorBlock) {
+    const W = vp.clientWidth;
+    document.documentElement.style.setProperty('--vph', (vp.clientHeight * 0.92) + 'px');
+    content.style.width = W + 'px';
+    content.style.columnWidth = W + 'px';
+    content.style.columnGap = GAP + 'px';
+    content.style.transform = 'translate3d(0,0,0)';
+
+    S.step = W + GAP;
+    S.total = Math.max(1, Math.round((content.scrollWidth + GAP) / S.step));
+    S.heads.forEach(h => { h.page = pageOf(h.el); });
+
+    const target = S.blocks[anchorBlock];
+    go(target ? pageOf(target) : 0, true);
+  }
+
+  function relayout() {
+    if (!S.cur) return;
+    layout(firstBlockOnPage());
+  }
+
+  // Which page an element starts on
+  function pageOf(el) {
+    const left = el.getBoundingClientRect().left - content.getBoundingClientRect().left;
+    return Math.max(0, Math.min(S.total - 1, Math.floor((left + 2) / S.step)));
+  }
+
+  // Index of the first top-level block visible on the current page (binary search)
+  function firstBlockOnPage() {
+    let lo = 0, hi = S.blocks.length - 1, ans = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (pageOf(S.blocks[mid]) < S.page) lo = mid + 1;
+      else { ans = mid; hi = mid - 1; }
+    }
+    // If that block started on an earlier page (long paragraph), step back one
+    if (ans > 0 && pageOf(S.blocks[ans]) > S.page) ans -= 1;
+    return ans;
+  }
+
+  function go(p, silent) {
+    S.page = Math.max(0, Math.min(S.total - 1, p));
+    content.style.transform = `translate3d(${-S.page * S.step}px,0,0)`;
+    updateFooter();
+    if (!silent) saveProgressSoon();
+  }
+  const next = () => go(S.page + 1);
+  const prev = () => go(S.page - 1);
+
+  let saveTimer = null;
+  function saveProgressSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(saveProgress, 500); }
+  function saveProgress() {
+    if (!S.cur) return;
+    S.cur.pos = firstBlockOnPage();
+    S.cur.pct = S.total > 1 ? (S.page / (S.total - 1)) * 100 : 100;
+    saveBooks();
+  }
+
+  // ============================================================
+  // 5. FOOTER + PROGRESS
+  // ============================================================
+  const FOOT_MODES = ['page', 'percent', 'chapter', 'book', 'none'];
+
+  function minutesLeft(pages) {
+    const wordsPerPage = S.words / S.total;
+    return Math.max(0, Math.round((pages * wordsPerPage) / WPM));
+  }
+  function fmtMin(m) {
+    if (m < 1) return 'less than a min';
+    if (m < 60) return m + ' min';
+    return Math.floor(m / 60) + ' h ' + (m % 60) + ' min';
+  }
+  function nextChapterPage() {
+    const h = S.heads.filter(x => x.level <= 2 && x.page > S.page)[0];
+    return h ? h.page : S.total;
+  }
+
+  function updateFooter() {
+    const mode = FOOT_MODES[S.set.foot % FOOT_MODES.length];
+    const pct = S.total > 1 ? Math.round((S.page / (S.total - 1)) * 100) : 100;
+    let txt = '';
+    if (mode === 'page') txt = `Page ${S.page + 1} of ${S.total}`;
+    if (mode === 'percent') txt = pct + '%';
+    if (mode === 'chapter') txt = fmtMin(minutesLeft(nextChapterPage() - S.page - 1)) + ' left in chapter';
+    if (mode === 'book') txt = fmtMin(minutesLeft(S.total - S.page - 1)) + ' left in book';
+    $('foot').textContent = txt;
+    $('foot').style.opacity = mode === 'none' ? '0' : '1';
+
+    const seek = $('seek');
+    seek.max = S.total; seek.value = S.page + 1;
+    $('seekLabel').textContent = `Page ${S.page + 1} of ${S.total} · ${pct}%`;
+    $('seekLeft').textContent = fmtMin(minutesLeft(S.total - S.page - 1)) + ' left';
+  }
+
+  // ============================================================
+  // 6. SETTINGS
+  // ============================================================
+  function applySettings() {
+    const s = S.set, root = document.documentElement.style;
+    document.body.className = 't-' + s.theme;
+    root.setProperty('--font', FONTS[s.font] || FONTS.literata);
+    root.setProperty('--size', s.size + 'px');
+    root.setProperty('--lh', s.lh);
+    root.setProperty('--margin', s.margin + 'px');
+    root.setProperty('--align', s.align);
+    const meta = document.querySelector('meta[name=theme-color]');
+    if (meta) meta.content = getComputedStyle(document.body).getPropertyValue('--bg');
+
+    markOn('#themes .swatch', b => b.dataset.t === s.theme);
+    markOn('#fonts button',   b => b.dataset.f === s.font);
+    markOn('#lhs button',     b => +b.dataset.v === s.lh);
+    markOn('#margins button', b => +b.dataset.v === s.margin);
+    markOn('#aligns button',  b => b.dataset.v === s.align);
+    $('sizeIn').value = s.size;
+  }
+  function markOn(sel, test) { document.querySelectorAll(sel).forEach(b => b.classList.toggle('on', test(b))); }
+
+  function setSetting(key, value) {
+    S.set[key] = value;
+    save(KEY_SET, S.set);
+    applySettings();
+    if (key !== 'theme' && key !== 'foot') relayout();
+  }
+
+  // ============================================================
+  // 7. UI — chrome, sheets, toast
+  // ============================================================
+  function setChrome(on) {
+    S.chrome = on;
+    $('topbar').classList.toggle('hidden', !on);
+    $('botbar').classList.toggle('hidden', !on);
+    $('foot').classList.toggle('hidden', on);
+  }
+
+  function openSheet(id) {
+    closeSheets();
+    $('sheetBg').classList.remove('hidden');
+    $(id).classList.remove('hidden');
+  }
+  function closeSheets() {
+    ['aaSheet', 'tocSheet', 'pasteSheet'].forEach(id => $(id).classList.add('hidden'));
+    $('sheetBg').classList.add('hidden');
+  }
+  const sheetOpen = () => !$('sheetBg').classList.contains('hidden');
+
+  function buildToc() {
+    const nav = $('toc');
+    nav.innerHTML = '';
+    if (!S.heads.length) { nav.innerHTML = '<div class="empty">No headings in this book.</div>'; return; }
+    let here = null;
+    S.heads.forEach(h => { if (h.page <= S.page) here = h; });
+    S.heads.forEach((h) => {
+      const a = document.createElement('a');
+      a.href = '#';
+      a.className = 'l' + h.level + (h === here ? ' here' : '');
+      a.innerHTML = `${escapeHtml(h.text)}<span>${h.page + 1}</span>`;
+      a.addEventListener('click', (e) => { e.preventDefault(); closeSheets(); setChrome(false); go(h.page); });
+      nav.appendChild(a);
+    });
+  }
+
+  let toastTimer;
+  function toast(msg) {
+    const t = $('toast');
+    t.textContent = msg; t.classList.remove('hidden');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), 2800);
+  }
+
+  // ============================================================
+  // 8. INPUT — taps, swipes, keys, wheel
+  // ============================================================
+  let touch = null;
+  $('reader').addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) { touch = null; return; }
+    touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+  }, { passive: true });
+  $('reader').addEventListener('touchend', (e) => {
+    if (!touch || S.chrome || sheetOpen()) return;
+    const dx = e.changedTouches[0].clientX - touch.x, dy = e.changedTouches[0].clientY - touch.y;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - touch.t < 600) {
+      dx < 0 ? next() : prev();
+      touch.swiped = true;
+    }
+  }, { passive: true });
+
+  // Tap zones: left 30% = back, right 70%... Kindle-style: left third back, middle toggles menu, right next
+  $('reader').addEventListener('click', (e) => {
+    if (touch && touch.swiped) { touch = null; return; }
+    if (e.target.closest('.chrome')) return;
+    if (e.target.closest('#foot')) { setSetting('foot', (S.set.foot + 1) % FOOT_MODES.length); return; }
+
+    const link = e.target.closest('a');
+    if (link) {
+      const href = link.getAttribute('href') || '';
+      if (href.startsWith('#')) {
+        e.preventDefault();
+        const t = document.getElementById(decodeURIComponent(href.slice(1)));
+        if (t && content.contains(t)) go(pageOf(t));
+      }
+      return; // external links open normally
+    }
+    if (String(window.getSelection())) return;   // user is selecting text
+
+    if (S.chrome) { setChrome(false); return; }
+    const x = e.clientX / window.innerWidth;
+    if (x < 0.3) prev();
+    else if (x > 0.7) next();
+    else setChrome(true);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (!S.cur || /input|textarea/i.test(e.target.tagName)) return;
+    if (e.key === 'Escape') { sheetOpen() ? closeSheets() : S.chrome ? setChrome(false) : closeBook(); return; }
+    if (sheetOpen()) return;
+    if (['ArrowRight', 'PageDown', 'j'].includes(e.key) || (e.key === ' ' && !e.shiftKey)) { e.preventDefault(); next(); }
+    if (['ArrowLeft', 'PageUp', 'k'].includes(e.key) || (e.key === ' ' && e.shiftKey)) { e.preventDefault(); prev(); }
+    if (e.key === 'Home') go(0);
+    if (e.key === 'End') go(S.total - 1);
+    if (e.key === '+' || e.key === '=') setSetting('size', Math.min(30, S.set.size + 1));
+    if (e.key === '-') setSetting('size', Math.max(14, S.set.size - 1));
+    if (e.key === 'm') setChrome(!S.chrome);
+  });
+
+  let wheelLock = 0;
+  $('reader').addEventListener('wheel', (e) => {
+    if (S.chrome || sheetOpen()) return;
+    const now = Date.now();
+    if (now - wheelLock < 350 || Math.abs(e.deltaY) + Math.abs(e.deltaX) < 15) return;
+    wheelLock = now;
+    (e.deltaY || e.deltaX) > 0 ? next() : prev();
+  }, { passive: true });
+
+  let resizeTimer;
+  window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(relayout, 150); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) saveProgress(); });
+  window.addEventListener('pagehide', saveProgress);
+
+  // ============================================================
+  // 9. WIRING — buttons
+  // ============================================================
+  $('openBtn').onclick = () => $('fileIn').click();
+  $('fileIn').onchange = (e) => { readFiles(e.target.files); e.target.value = ''; };
+  $('pasteBtn').onclick = () => { $('pasteTitle').value = ''; $('pasteText').value = ''; openSheet('pasteSheet'); };
+  $('pasteSave').onclick = () => {
+    const text = $('pasteText').value;
+    if (!text.trim()) { toast('Nothing to add'); return; }
+    const b = addBook($('pasteTitle').value.trim() || null, text);
+    closeSheets(); openBook(b.id);
+  };
+  $('libTheme').onclick = () => {
+    const order = ['white', 'sepia', 'dark', 'black'];
+    setSetting('theme', order[(order.indexOf(S.set.theme) + 1) % order.length]);
+  };
+
+  $('backBtn').onclick = closeBook;
+  $('aaBtn').onclick = () => openSheet('aaSheet');
+  $('tocBtn').onclick = () => { buildToc(); openSheet('tocSheet'); };
+  $('fsBtn').onclick = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch (err) { toast('Full screen is not allowed here'); }
+  };
+  $('sheetBg').onclick = closeSheets;
+
+  $('seek').oninput = (e) => { $('seekLabel').textContent = `Page ${e.target.value} of ${S.total}`; };
+  $('seek').onchange = (e) => go(+e.target.value - 1);
+
+  document.querySelectorAll('#themes .swatch').forEach(b => b.onclick = () => setSetting('theme', b.dataset.t));
+  document.querySelectorAll('#fonts button').forEach(b => b.onclick = () => setSetting('font', b.dataset.f));
+  document.querySelectorAll('#lhs button').forEach(b => b.onclick = () => setSetting('lh', +b.dataset.v));
+  document.querySelectorAll('#margins button').forEach(b => b.onclick = () => setSetting('margin', +b.dataset.v));
+  document.querySelectorAll('#aligns button').forEach(b => b.onclick = () => setSetting('align', b.dataset.v));
+  $('sizeIn').onchange = (e) => setSetting('size', +e.target.value);
+  $('sizeDown').onclick = () => setSetting('size', Math.max(14, S.set.size - 1));
+  $('sizeUp').onclick = () => setSetting('size', Math.min(30, S.set.size + 1));
+
+  // Drag & drop anywhere
+  let dragDepth = 0;
+  window.addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; $('dropzone').classList.remove('hidden'); });
+  window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('dropzone').classList.add('hidden'); } });
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('drop', (e) => {
+    e.preventDefault(); dragDepth = 0; $('dropzone').classList.add('hidden');
+    if (e.dataTransfer.files.length) readFiles(e.dataTransfer.files);
+  });
+
+  // ============================================================
+  // 10. HELPERS + START
+  // ============================================================
+  function countWords(s) { return (s.match(/\S+/g) || []).length; }
+  function escapeHtml(s) { return s.replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c])); }
+
+  const WELCOME = `# How to read here
+
+Welcome. This is a quiet place for your Markdown files — no feeds, no badges, no noise.
+
+## Turning pages
+
+- **Tap the right side** of the screen (or swipe left) for the next page.
+- **Tap the left side** (or swipe right) to go back.
+- **Tap the middle** to show the menu. Tap again to hide it.
+
+On a computer, use the **arrow keys**, **space**, or your **mouse wheel**. Press **Esc** to go back to the library.
+
+## Making it yours
+
+Open the menu and tap **Aa** to change the theme, font, size, line spacing, margins and alignment. Your choices are remembered.
+
+Tap the small line at the bottom of the page to switch between *page number*, *percent*, *time left in chapter*, *time left in book*, or nothing at all.
+
+## Your books
+
+Go back to the **Library** and open any \`.md\` file, or paste text. Your place in each book is saved on this device.
+
+> Tip: Install this as an app from the Library (or Chrome menu → *Install app*). It then opens full screen and works without internet.
+
+---
+
+Remove this guide from the library any time. Happy reading.`;
+
+  S.set = Object.assign({}, DEFAULT_SET, load(KEY_SET, {}));
+  S.books = load(KEY_BOOKS, null);
+  if (!Array.isArray(S.books)) { S.books = []; addBook('How to read here', WELCOME); }
+  applySettings();
+  renderLibrary();
+
+  // ============================================================
+  // 11. INSTALLABLE APP (PWA) — offline cache + install button
+  // ============================================================
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      // A new version was downloaded in the background → tell the reader once
+      reg.addEventListener('updatefound', () => {
+        const nw = reg.installing;
+        nw && nw.addEventListener('statechange', () => {
+          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+            toast('Update ready — reopen the app to use it.');
+          }
+        });
+      });
+    }).catch(() => {});
+  }
+
+  let installEvt = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    installEvt = e;
+    $('installBtn').classList.remove('hidden');
+  });
+  $('installBtn').onclick = async () => {
+    if (!installEvt) return;
+    installEvt.prompt();
+    try { await installEvt.userChoice; } catch (err) {}
+    installEvt = null;
+    $('installBtn').classList.add('hidden');
+  };
+  window.addEventListener('appinstalled', () => $('installBtn').classList.add('hidden'));
+
+  // Ask the browser not to clear saved books when space is low
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+})();
+</script>
+</body>
+</html>
