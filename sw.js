@@ -1,6 +1,6 @@
 // Quiet Reader — offline cache.
 // To ship an update: change VERSION, commit, push. Phones pick it up on next open.
-const VERSION = 'qr-v1';
+const VERSION = 'qr-v2';
 const SHELL = [
   './',
   './index.html',
